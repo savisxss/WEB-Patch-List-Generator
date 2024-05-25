@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Metin2-Patchlist Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        .folder-header {
+            background-color: #4CAF50;
+            color: white;
+            text-align: center;
+            width: 50%;
+            padding: 10px;
+            margin: 0 auto; /* Dodajemy margines auto, aby wyśrodkować belkę */
+        }
+    </style>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Metin2-Patchlist Generator</h1>
+        </header>
+        <nav>
+            <button onclick="document.getElementById('upload-form').style.display='block';">Upload File</button>
+            <form id="upload-form" style="display: none;" enctype="multipart/form-data" action="{{ url_for('upload') }}" method="post">
+                <label for="folder-select">Select folder:</label>
+                <select id="folder-select" name="folder">
+                    <option value="main">Main</option>
+                    <option value="pack">Pack</option>
+                    <option value="custom">Custom</option>
+                </select>
+                <input type="file" id="file-input" name="files[]" multiple>
+                <button type="submit">Upload</button>
+            </form>
+            <button onclick="generatePatchlist()">Generate Patchlist</button>
+        </nav>
+        <main>
+            <div class="folder-header">Main Folder</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Nazwa pliku</th>
+                        <th>Rozmiar pliku</th>
+                        <th>Sha256</th>
+                        <th>Status</th>
+                        <th>Usuń</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for filename, details in file_status.items() if details['folder'] == 'main' %}
+                    <tr>
+                        <td>{{ details['date'] }}</td>
+                        <td>{{ filename }}</td>
+                        <td>{{ details['size'] }}</td>
+                        <td>{{ details['sha256'] }}</td>
+                        <td>
+                            <label class="switch">
+                                <input type="checkbox" {% if details['status'] == 'ON' %}checked{% endif %} onchange="updateStatus('{{ filename }}', this.checked)">
+                                <span class="slider round"></span>
+                            </label>
+                        </td>
+                        <td><button onclick="deleteFile('{{ filename }}')">Usuń</button></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <div class="folder-header">Pack</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Nazwa pliku</th>
+                        <th>Rozmiar pliku</th>
+                        <th>Sha256</th>
+                        <th>Status</th>
+                        <th>Usuń</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for filename, details in file_status.items() if details['folder'] == 'pack' %}
+                    <tr>
+                        <td>{{ details['date'] }}</td>
+                        <td>pack/{{ filename }}</td>
+                        <td>{{ details['size'] }}</td>
+                        <td>{{ details['sha256'] }}</td>
+                        <td>
+                            <label class="switch">
+                                <input type="checkbox" {% if details['status'] == 'ON' %}checked{% endif %} onchange="updateStatus('{{ filename }}', this.checked)">
+                                <span class="slider round"></span>
+                            </label>
+                        </td>
+                        <td><button onclick="deleteFile('{{ filename }}')">Usuń</button></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </main>
+    </div>
+    <script>
+        function updateStatus(filename, status) {
+            $.ajax({
+                url: "{{ url_for('update_status') }}",
+                type: "POST",
+                contentType: "application/json",
+                data: JSON.stringify({ filename: filename, status: status ? 'ON' : 'OFF' }),
+                success: function(response) {
+                    if (!response.success) {
+                        alert('Failed to update status');
+                    }
+                }
+            });
+        }
+
+        function deleteFile(filename) {
+            if (confirm('Czy na pewno chcesz usunąć ten plik?')) {
+                $.ajax({
+                    url: "{{ url_for('delete_file') }}",
+                    type: "POST",
+                    contentType: "application/json",
+                    data: JSON.stringify({ filename: filename }),
+                    success: function(response) {
+                        if (response.success) {
+                            location.reload();
+                        } else {
+                            alert('Failed to delete file');
+                        }
+                    }
+                });
+            }
+        }
+
+    </script>
+</body>
+</html>
