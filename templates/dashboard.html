@@ -2,136 +2,497 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Metin2-Patchlist Generator</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <style>
-        .folder-header {
-            background-color: #4CAF50;
-            color: white;
-            text-align: center;
-            width: 50%;
-            padding: 10px;
-            margin: 0 auto; /* Dodajemy margines auto, aby wyśrodkować belkę */
-        }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patcher Admin Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Metin2-Patchlist Generator</h1>
-        </header>
-        <nav>
-            <button onclick="document.getElementById('upload-form').style.display='block';">Upload File</button>
-            <form id="upload-form" style="display: none;" enctype="multipart/form-data" action="{{ url_for('upload') }}" method="post">
-                <label for="folder-select">Select folder:</label>
-                <select id="folder-select" name="folder">
-                    <option value="main">Main</option>
-                    <option value="pack">Pack</option>
-                    <option value="custom">Custom</option>
-                </select>
-                <input type="file" id="file-input" name="files[]" multiple>
-                <button type="submit">Upload</button>
-            </form>
-            <button onclick="generatePatchlist()">Generate Patchlist</button>
-        </nav>
-        <main>
-            <div class="folder-header">Main Folder</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Data</th>
-                        <th>Nazwa pliku</th>
-                        <th>Rozmiar pliku</th>
-                        <th>Sha256</th>
-                        <th>Status</th>
-                        <th>Usuń</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for filename, details in file_status.items() if details['folder'] == 'main' %}
-                    <tr>
-                        <td>{{ details['date'] }}</td>
-                        <td>{{ filename }}</td>
-                        <td>{{ details['size'] }}</td>
-                        <td>{{ details['sha256'] }}</td>
-                        <td>
-                            <label class="switch">
-                                <input type="checkbox" {% if details['status'] == 'ON' %}checked{% endif %} onchange="updateStatus('{{ filename }}', this.checked)">
-                                <span class="slider round"></span>
-                            </label>
-                        </td>
-                        <td><button onclick="deleteFile('{{ filename }}')">Usuń</button></td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="logo">
+                <i class="fas fa-sync-alt"></i>
+                <span>Patcher Admin</span>
+            </div>
+            <nav class="nav-menu">
+                <ul>
+                    <li class="active"><a href="{{ url_for('dashboard') }}"><i class="fas fa-tachometer-alt"></i> Dashboard</a></li>
+                    <li><a href="#" id="upload-toggle"><i class="fas fa-upload"></i> Upload</a></li>
+                    <li><a href="#" id="regenerate-trigger"><i class="fas fa-file-export"></i> Generate Patchlist</a></li>
+                    <li><a href="{{ url_for('serve_patchlist') }}" target="_blank"><i class="fas fa-eye"></i> View Patchlist</a></li>
+                    <li><a href="{{ url_for('server_status') }}" target="_blank"><i class="fas fa-server"></i> Server Status</a></li>
+                </ul>
+            </nav>
+            <div class="system-info">
+                <div class="info-item">
+                    <span>Disk Space:</span>
+                    <div class="progress-bar">
+                        <div class="progress" style="width: {{ system_stats.disk_percent }}%"></div>
+                    </div>
+                    <span>{{ system_stats.free_space }}GB / {{ system_stats.total_space }}GB</span>
+                </div>
+                <div class="info-item">
+                    <span>Total Files:</span>
+                    <span>{{ system_stats.total_files }}</span>
+                </div>
+                <div class="info-item">
+                    <span>Active Files:</span>
+                    <span>{{ system_stats.active_files }}</span>
+                </div>
+            </div>
+        </div>
 
-            <div class="folder-header">Pack</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Data</th>
-                        <th>Nazwa pliku</th>
-                        <th>Rozmiar pliku</th>
-                        <th>Sha256</th>
-                        <th>Status</th>
-                        <th>Usuń</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for filename, details in file_status.items() if details['folder'] == 'pack' %}
-                    <tr>
-                        <td>{{ details['date'] }}</td>
-                        <td>pack/{{ filename }}</td>
-                        <td>{{ details['size'] }}</td>
-                        <td>{{ details['sha256'] }}</td>
-                        <td>
-                            <label class="switch">
-                                <input type="checkbox" {% if details['status'] == 'ON' %}checked{% endif %} onchange="updateStatus('{{ filename }}', this.checked)">
-                                <span class="slider round"></span>
-                            </label>
-                        </td>
-                        <td><button onclick="deleteFile('{{ filename }}')">Usuń</button></td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </main>
+        <!-- Main Content -->
+        <div class="main-content">
+            <header class="top-bar">
+                <div class="search-bar">
+                    <input type="text" id="file-search" placeholder="Search files...">
+                    <i class="fas fa-search"></i>
+                </div>
+                <div class="user-actions">
+                    <a href="#" class="btn-refresh" id="refresh-dashboard"><i class="fas fa-sync"></i> Refresh</a>
+                </div>
+            </header>
+
+            <!-- Upload Form (Hidden by default) -->
+            <div class="upload-panel" id="upload-form">
+                <h2><i class="fas fa-upload"></i> Upload Files</h2>
+                <form enctype="multipart/form-data" action="{{ url_for('upload') }}" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="form-group">
+                        <label for="folder-select">Select folder:</label>
+                        <select id="folder-select" name="folder" class="form-control">
+                            <option value="main">Main</option>
+                            <option value="pack">Pack</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                    </div>
+                    <div class="form-group file-input-group">
+                        <label for="file-input">Choose files:</label>
+                        <div class="file-input-container">
+                            <input type="file" id="file-input" name="files[]" multiple class="form-control">
+                            <div class="file-input-label">
+                                <i class="fas fa-file-upload"></i>
+                                <span id="file-input-text">Click to select files</span>
+                            </div>
+                        </div>
+                        <div id="file-list" class="file-list"></div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary"><i class="fas fa-cloud-upload-alt"></i> Upload</button>
+                        <button type="button" class="btn-secondary" id="cancel-upload"><i class="fas fa-times"></i> Cancel</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Flash Messages -->
+            <div class="flash-messages">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }}">
+                                <i class="fas fa-info-circle"></i> {{ message }}
+                                <button class="close-alert">&times;</button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+            </div>
+
+            <!-- Dashboard Content -->
+            <div class="dashboard-content">
+                <!-- Main Folder Files -->
+                <div class="content-section">
+                    <div class="section-header">
+                        <h2><i class="fas fa-folder"></i> Main Folder</h2>
+                        <div class="section-actions">
+                            <span class="file-count">{{ file_status|selectattr('folder', 'equalto', 'main')|list|length }} files</span>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Filename</th>
+                                    <th>Size</th>
+                                    <th>SHA256</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for filename, details in file_status.items() if details['folder'] == 'main' %}
+                                <tr data-filename="{{ filename }}" data-search="{{ filename.lower() }}">
+                                    <td>{{ details['date'] }}</td>
+                                    <td class="filename-cell">{{ filename }}</td>
+                                    <td>{{ (details['size'] / 1024)|round|int }} KB</td>
+                                    <td class="hash-cell">
+                                        <div class="truncated-text">{{ details['sha256'] }}</div>
+                                        <button class="copy-btn" data-clipboard-text="{{ details['sha256'] }}">
+                                            <i class="fas fa-copy"></i>
+                                        </button>
+                                    </td>
+                                    <td>
+                                        <label class="switch">
+                                            <input type="checkbox" {% if details['status'] == 'ON' %}checked{% endif %} 
+                                                   onchange="updateStatus('{{ filename }}', this.checked)">
+                                            <span class="slider round"></span>
+                                        </label>
+                                    </td>
+                                    <td class="actions-cell">
+                                        <button class="btn-delete" onclick="deleteFile('{{ filename }}')">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr class="empty-row">
+                                    <td colspan="6">No files in main folder</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Pack Folder Files -->
+                <div class="content-section">
+                    <div class="section-header">
+                        <h2><i class="fas fa-box"></i> Pack Folder</h2>
+                        <div class="section-actions">
+                            <span class="file-count">{{ file_status|selectattr('folder', 'equalto', 'pack')|list|length }} files</span>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Filename</th>
+                                    <th>Size</th>
+                                    <th>SHA256</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for filename, details in file_status.items() if details['folder'] == 'pack' %}
+                                <tr data-filename="{{ filename }}" data-search="{{ filename.lower() }}">
+                                    <td>{{ details['date'] }}</td>
+                                    <td class="filename-cell">pack/{{ filename }}</td>
+                                    <td>{{ (details['size'] / 1024)|round|int }} KB</td>
+                                    <td class="hash-cell">
+                                        <div class="truncated-text">{{ details['sha256'] }}</div>
+                                        <button class="copy-btn" data-clipboard-text="{{ details['sha256'] }}">
+                                            <i class="fas fa-copy"></i>
+                                        </button>
+                                    </td>
+                                    <td>
+                                        <label class="switch">
+                                            <input type="checkbox" {% if details['status'] == 'ON' %}checked{% endif %} 
+                                                   onchange="updateStatus('{{ filename }}', this.checked)">
+                                            <span class="slider round"></span>
+                                        </label>
+                                    </td>
+                                    <td class="actions-cell">
+                                        <button class="btn-delete" onclick="deleteFile('{{ filename }}')">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr class="empty-row">
+                                    <td colspan="6">No files in pack folder</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Custom Folder Files (if any) -->
+                {% if file_status|selectattr('folder', 'equalto', 'custom')|list|length > 0 %}
+                <div class="content-section">
+                    <div class="section-header">
+                        <h2><i class="fas fa-cog"></i> Custom Folder</h2>
+                        <div class="section-actions">
+                            <span class="file-count">{{ file_status|selectattr('folder', 'equalto', 'custom')|list|length }} files</span>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Filename</th>
+                                    <th>Size</th>
+                                    <th>SHA256</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for filename, details in file_status.items() if details['folder'] == 'custom' %}
+                                <tr data-filename="{{ filename }}" data-search="{{ filename.lower() }}">
+                                    <td>{{ details['date'] }}</td>
+                                    <td class="filename-cell">custom/{{ filename }}</td>
+                                    <td>{{ (details['size'] / 1024)|round|int }} KB</td>
+                                    <td class="hash-cell">
+                                        <div class="truncated-text">{{ details['sha256'] }}</div>
+                                        <button class="copy-btn" data-clipboard-text="{{ details['sha256'] }}">
+                                            <i class="fas fa-copy"></i>
+                                        </button>
+                                    </td>
+                                    <td>
+                                        <label class="switch">
+                                            <input type="checkbox" {% if details['status'] == 'ON' %}checked{% endif %} 
+                                                   onchange="updateStatus('{{ filename }}', this.checked)">
+                                            <span class="slider round"></span>
+                                        </label>
+                                    </td>
+                                    <td class="actions-cell">
+                                        <button class="btn-delete" onclick="deleteFile('{{ filename }}')">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
     </div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal" id="confirmation-modal">
+        <div class="modal-content">
+            <h3>Confirm Action</h3>
+            <p id="modal-message">Are you sure you want to perform this action?</p>
+            <div class="modal-actions">
+                <button id="modal-confirm" class="btn-danger">Confirm</button>
+                <button id="modal-cancel" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div class="loading-spinner" id="loading-spinner">
+        <div class="spinner"></div>
+        <p>Processing...</p>
+    </div>
+
     <script>
+        // File status update
         function updateStatus(filename, status) {
+            showLoading();
             $.ajax({
                 url: "{{ url_for('update_status') }}",
                 type: "POST",
                 contentType: "application/json",
-                data: JSON.stringify({ filename: filename, status: status ? 'ON' : 'OFF' }),
+                data: JSON.stringify({ 
+                    filename: filename, 
+                    status: status,
+                    csrf_token: "{{ csrf_token() }}"
+                }),
                 success: function(response) {
+                    hideLoading();
                     if (!response.success) {
-                        alert('Failed to update status');
+                        showAlert('error', 'Failed to update status: ' + (response.error || 'Unknown error'));
+                    } else {
+                        showAlert('success', 'Status updated');
                     }
+                },
+                error: function(xhr) {
+                    hideLoading();
+                    showAlert('error', 'Error updating status: ' + (xhr.responseJSON?.error || 'Server error'));
                 }
             });
         }
 
+        // Delete file
         function deleteFile(filename) {
-            if (confirm('Czy na pewno chcesz usunąć ten plik?')) {
+            // Set up confirmation
+            $('#modal-message').text(`Are you sure you want to delete ${filename}?`);
+            $('#modal-confirm').off('click').on('click', function() {
+                hideModal();
+                showLoading();
+                
                 $.ajax({
-                    url: "{{ url_for('delete_file') }}",
+                    url: "{{ url_for('delete_file_route') }}",
                     type: "POST",
                     contentType: "application/json",
-                    data: JSON.stringify({ filename: filename }),
+                    data: JSON.stringify({ 
+                        filename: filename,
+                        csrf_token: "{{ csrf_token() }}"
+                    }),
                     success: function(response) {
+                        hideLoading();
                         if (response.success) {
-                            location.reload();
+                            // Remove row from table
+                            $(`tr[data-filename="${filename}"]`).fadeOut(300, function() {
+                                $(this).remove();
+                                showAlert('success', 'File deleted successfully');
+                            });
                         } else {
-                            alert('Failed to delete file');
+                            showAlert('error', 'Failed to delete file: ' + (response.error || 'Unknown error'));
                         }
+                    },
+                    error: function(xhr) {
+                        hideLoading();
+                        showAlert('error', 'Error deleting file: ' + (xhr.responseJSON?.error || 'Server error'));
                     }
                 });
-            }
+            });
+            
+            $('#modal-cancel').off('click').on('click', hideModal);
+            showModal();
         }
 
+        // Regenerate patchlist
+        function regeneratePatchlist() {
+            showLoading();
+            $.ajax({
+                url: "{{ url_for('regenerate_patchlist') }}",
+                type: "GET",
+                success: function(response) {
+                    hideLoading();
+                    if (response.success) {
+                        showAlert('success', 'Patchlist regenerated successfully');
+                    } else {
+                        showAlert('error', 'Failed to regenerate patchlist: ' + (response.error || 'Unknown error'));
+                    }
+                },
+                error: function(xhr) {
+                    hideLoading();
+                    showAlert('error', 'Error regenerating patchlist: ' + (xhr.responseJSON?.error || 'Server error'));
+                }
+            });
+        }
+
+        // UI helpers
+        function showLoading() {
+            $('#loading-spinner').fadeIn(200);
+        }
+
+        function hideLoading() {
+            $('#loading-spinner').fadeOut(200);
+        }
+
+        function showModal() {
+            $('#confirmation-modal').fadeIn(200);
+        }
+
+        function hideModal() {
+            $('#confirmation-modal').fadeOut(200);
+        }
+
+        function showAlert(type, message) {
+            const alertHtml = `
+                <div class="alert alert-${type}">
+                    <i class="fas fa-info-circle"></i> ${message}
+                    <button class="close-alert">&times;</button>
+                </div>
+            `;
+            $('.flash-messages').append(alertHtml);
+            
+            // Auto-dismiss after 5 seconds
+            setTimeout(function() {
+                $('.flash-messages .alert').first().fadeOut(300, function() {
+                    $(this).remove();
+                });
+            }, 5000);
+        }
+
+        $(document).ready(function() {
+            // Toggle upload form
+            $('#upload-toggle').click(function() {
+                $('#upload-form').slideToggle(300);
+            });
+
+            $('#cancel-upload').click(function() {
+                $('#upload-form').slideUp(300);
+            });
+
+            // File input handling
+            $('#file-input').change(function() {
+                const files = this.files;
+                let fileList = '';
+                
+                if (files.length > 0) {
+                    $('#file-input-text').text(`${files.length} file(s) selected`);
+                    
+                    for (let i = 0; i < files.length; i++) {
+                        const file = files[i];
+                        const size = (file.size / 1024).toFixed(1) + ' KB';
+                        fileList += `<div class="file-item">
+                            <i class="fas fa-file"></i>
+                            <span class="file-name">${file.name}</span>
+                            <span class="file-size">${size}</span>
+                        </div>`;
+                    }
+                } else {
+                    $('#file-input-text').text('Click to select files');
+                }
+                
+                $('#file-list').html(fileList);
+            });
+
+            // Search functionality
+            $('#file-search').on('input', function() {
+                const searchText = $(this).val().toLowerCase();
+                
+                $('.data-table tbody tr').each(function() {
+                    const fileData = $(this).attr('data-search');
+                    if (fileData && fileData.indexOf(searchText) > -1) {
+                        $(this).show();
+                    } else {
+                        $(this).hide();
+                    }
+                });
+            });
+
+            // Regenerate patchlist
+            $('#regenerate-trigger').click(function(e) {
+                e.preventDefault();
+                $('#modal-message').text('Are you sure you want to regenerate the patchlist?');
+                $('#modal-confirm').off('click').on('click', function() {
+                    hideModal();
+                    regeneratePatchlist();
+                });
+                $('#modal-cancel').off('click').on('click', hideModal);
+                showModal();
+            });
+
+            // Refresh dashboard
+            $('#refresh-dashboard').click(function(e) {
+                e.preventDefault();
+                showLoading();
+                location.reload();
+            });
+
+            // Copy hash to clipboard
+            $('.copy-btn').click(function() {
+                const text = $(this).data('clipboard-text');
+                navigator.clipboard.writeText(text).then(function() {
+                    showAlert('success', 'Hash copied to clipboard');
+                }, function() {
+                    showAlert('error', 'Failed to copy hash');
+                });
+            });
+
+            // Close alert
+            $(document).on('click', '.close-alert', function() {
+                $(this).parent().fadeOut(300, function() {
+                    $(this).remove();
+                });
+            });
+        });
     </script>
 </body>
 </html>
